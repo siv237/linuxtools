@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Получаем выводы команд btrfs qgroup show и btrfs subvolume list
+qgroup_show=$(btrfs qgroup show -r --raw /)
+subvolume_list=$(btrfs subvolume list /)
+
+# Извлекаем номера ключей подтомов из вывода btrfs subvolume list
+subvolume_keys=$(echo "$subvolume_list" | awk '{print $2}')
+
+# Вывод заголовков
+printf "%-25s %-10s %-10s %-10s\n" "Path" "Used" "Max" "Percent"
+
+# Извлекаем записи, соответствующие каждому ключу из вывода btrfs qgroup show
+for key in $subvolume_keys; do
+    # Фильтруем записи по ключу
+    subvolume_record=$(echo "$subvolume_list" | awk -v key="$key" '$2 == key')
+
+    # Фильтруем записи по ключу из вывода btrfs qgroup show
+    qgroup_record=$(echo "$qgroup_show" | awk -v key="$key" '$1 ~ key')
+
+    # Извлекаем путь из записи btrfs subvolume list
+    path=$(echo "$subvolume_record" | cut -d' ' -f9-)
+
+    # Формируем полный путь, восстанавливая слеши
+    full_path="/$path"
+
+    # Убираем начальный слеш для root
+    if [ "$full_path" == "/root" ]; then
+        full_path="root"
+    fi
+
+    # Извлекаем квоты из записи btrfs qgroup show
+    used_bytes=$(echo "$qgroup_record" | awk '{print $2}')
+    max_bytes=$(echo "$qgroup_record" | awk '{print $4}')
+
+    # Если квота "none", то оставляем значение без изменений
+    if [ "$max_bytes" == "none" ]; then
+        max="-"
+        percent="-"
+    else
+        # Конвертируем байты в человеческий вид
+        max=$(numfmt --to=iec --format='%.2f' $max_bytes)
+        
+        # Вычисляем процент использования
+        percent=$(echo "scale=2; ($used_bytes * 100) / $max_bytes" | bc)
+        # Добавляем символ процента и округляем до двух знаков после запятой, если символ процента доступен
+        if [ -n "$percent" ]; then
+            percent=$(awk -v p="$percent" 'BEGIN { printf "%.2f%%", p }')
+        else
+            percent="-"  # Если процент недоступен, ставим прочерк
+        fi
+    fi
+
+    # Конвертируем байты в человеческий вид для использованного объема
+    used=$(numfmt --to=iec --format='%.2f' $used_bytes)
+
+    # Если указан аргумент, фильтруем вывод по пути
+    if [ -n "$1" ]; then
+        # Проверяем, содержится ли текущий путь в указанном пути
+        if [[ "$full_path" == "$1"* ]]; then
+            # Печатаем объединенную запись
+            printf "%-25s %-10s %-10s %-10s\n" "$full_path" "$used" "$max" "$percent"
+        fi
+    else
+        # Если аргумент не указан, выводим все записи без фильтрации
+        printf "%-25s %-10s %-10s %-10s\n" "$full_path" "$used" "$max" "$percent"
+    fi
+done

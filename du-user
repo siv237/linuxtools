@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Функция для вывода всех файлов и их размеров для указанного пользователя, отсортированных по размеру от большего к меньшему
+print_user_files() {
+    local directory="$1"
+    local target_user="$2"
+    echo "Директория: $directory"
+    echo "Целевой пользователь: $target_user"
+    find "$directory" -type f -printf '%u %s %p\n' | while read -r user size path; do
+        if [ "$user" == "$target_user" ]; then
+            echo "$size $path"
+        fi
+    done | numfmt --to=iec --field=1 | sort -rh
+}
+
+# Функция для вывода сводной информации по всем пользователям, отсортированной по размеру от большего к меньшему
+print_summary() {
+    local directory="$1"
+    echo "Директория: $directory"
+    find "$directory" -type f -printf '%u %s\n' | awk '{
+        user[$1]+=$2
+    } 
+    END {
+        for (i in user) {
+            printf "%s %s\n", i, user[i]
+        }
+    }' | numfmt --to=iec --field=2 | sort -rhk2 | column -t
+}
+
+# Проверяем наличие аргументов
+if [ $# -lt 1 ]; then
+    echo "Использование: $0 <путь> [-u <пользователь>]"
+    exit 1
+fi
+
+# Проверяем, что указанный путь существует
+if [ ! -d "$1" ]; then
+    echo "Указанный путь не существует"
+    exit 1
+fi
+
+# Если ключ -u не указан, выводим сводную информацию по всем пользователям
+if [ "$2" != "-u" ]; then
+    print_summary "$1"
+    exit 0
+fi
+
+# Если ключ -u указан, выводим все файлы для указанного пользователя
+if [ $# -lt 3 ]; then
+    echo "Не указан пользователь"
+    exit 1
+fi
+
+print_user_files "$1" "$3"
